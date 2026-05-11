@@ -1,2 +1,1 @@
-// The Swift Programming Language
-// https://docs.swift.org/swift-book
+// Library entry point. Public API lives in the focused source files.
