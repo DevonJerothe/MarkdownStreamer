@@ -46,7 +46,7 @@ For completed chat messages, use the stateless string initializer:
 StreamingMarkdownView(markdown: message.text)
 ```
 
-Completed strings are parsed synchronously in the view initializer through a shared cache and use deterministic block IDs. This avoids the empty-first-layout flash that can make parent `LazyVStack` scroll views jump.
+Completed strings are parsed synchronously in the view initializer through a shared cache and use deterministic block IDs. This avoids the empty-first-layout flash that can make parent scroll views jump.
 
 You can also precompute blocks yourself:
 
@@ -62,19 +62,19 @@ let blocks = await MarkdownReader.read(message.text, theme: theme)
 
 ## Accumulated Text Streams
 
-Some APIs emit the full accumulated message on each update. Use:
+Full accumulated message updates are supported through the `appendAccumulated(_:theme:)` method:
 
 ```swift
 await reader.appendAccumulated("# Gre", theme: theme)
-await reader.appendAccumulated("# Greeting\nThe", theme: theme)
-await reader.appendAccumulated("# Greeting\nThe assistant said", theme: theme)
+await reader.appendAccumulated("# Greetings\nThe", theme: theme)
+await reader.appendAccumulated("# Greetings\nThe assistant said", theme: theme)
 ```
 
-Only the new suffix is processed when snapshots are append-only.
+Only the new suffix is processed.
 
 ## Custom Code and Image Views
 
-The code and image renderers are still injectable:
+Custom code and image views are passed through the `StreamingMarkdownView` initializer:
 
 ```swift
 StreamingMarkdownView(
@@ -91,6 +91,8 @@ StreamingMarkdownView(
     }
 )
 ```
+
+The default image provider supports caching and remote image loading.
 
 `CodeBlock.highlightedCode` is precomputed by `StreamProcessor`; custom code views do not need to run Splash on the main thread.
 
@@ -121,7 +123,17 @@ let chatTheme = MarkdownTheme(
 )
 ```
 
-Apply it through the SwiftUI environment:
+`quoteHighlightFont` and `quoteHighlightForeground` control the style of quoted speech highlights. This is only applied if `regexHighlights` includes `.standardQuotedSpeech`.
+`.standardQuotedSpeech` is a built-in regex highlight that highlights text wrapped in straight double quotes or smart curly double quotes. Commonly used in conversational AI.
+
+Pass the same theme to the reader while streaming:
+
+```swift
+await reader.append(token, theme: chatTheme)
+await reader.appendAccumulated(message.text, theme: chatTheme)
+```
+
+to apply the theme after stremaing use the `markdownTheme(_:)` modifier:
 
 ```swift
 StreamingMarkdownView(blocks: reader.blocks)
@@ -132,12 +144,6 @@ For synchronous completed-string rendering, pass the theme at init time:
 
 ```swift
 StreamingMarkdownView(markdown: message.text, theme: chatTheme)
-```
-
-Pass the same theme to the reader while streaming:
-
-```swift
-await reader.append(token, theme: chatTheme)
 ```
 
 The theme is used by `StreamProcessor` for headings, bold text, inline code, code block containers, and regex highlights.
