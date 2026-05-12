@@ -1,5 +1,11 @@
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
 public struct StreamingMarkdownView<CodeView: View, ImageView: View>: View {
     private let blocks: [ChatBlock]
     private let codeView: (CodeBlock) -> CodeView
@@ -127,13 +133,14 @@ public extension StreamingMarkdownView where CodeView == SplashCodeBlockView {
 
 public struct DefaultMarkdownImageView: View {
     public let image: MarkdownImage
+    @State private var phase: DefaultMarkdownImagePhase = .empty
 
     public init(image: MarkdownImage) {
         self.image = image
     }
 
     public var body: some View {
-        AsyncImage(url: image.source) { phase in
+        Group {
             switch phase {
             case .empty:
                 ProgressView()
@@ -145,10 +152,94 @@ public struct DefaultMarkdownImageView: View {
                 Image(systemName: "photo")
                     .imageScale(.large)
                     .foregroundStyle(.secondary)
-            @unknown default:
-                EmptyView()
             }
         }
+        .task(id: image.source) {
+            phase = .empty
+            phase = await DefaultMarkdownImageLoader.shared.image(from: image.source)
+        }
         .accessibilityLabel(image.alt ?? "")
+    }
+}
+
+private enum DefaultMarkdownImagePhase {
+    case empty
+    case success(Image)
+    case failure
+}
+
+private actor DefaultMarkdownImageLoader {
+    static let shared = DefaultMarkdownImageLoader()
+
+    private var cachedData: [URL: Data] = [:]
+    private var inFlightRequests: [URL: Task<Data, Error>] = [:]
+
+    func image(from url: URL) async -> DefaultMarkdownImagePhase {
+        do {
+            let data = try await data(from: url)
+
+            guard let image = await Image.cachedMarkdownImage(from: data) else {
+                return .failure
+            }
+
+            return .success(image)
+        } catch {
+            return .failure
+        }
+    }
+
+    private func data(from url: URL) async throws -> Data {
+        if let data = cachedData[url] {
+            return data
+        }
+
+        if let request = inFlightRequests[url] {
+            return try await request.value
+        }
+
+        let request = Task<Data, Error> {
+            let (data, response) = try await URLSession.shared.data(from: url)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return data
+            }
+
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                throw URLError(.badServerResponse)
+            }
+
+            return data
+        }
+
+        inFlightRequests[url] = request
+
+        do {
+            let data = try await request.value
+            cachedData[url] = data
+            inFlightRequests[url] = nil
+            return data
+        } catch {
+            inFlightRequests[url] = nil
+            throw error
+        }
+    }
+}
+
+private extension Image {
+    @MainActor
+    static func cachedMarkdownImage(from data: Data) -> Image? {
+        #if os(macOS)
+        guard let image = NSImage(data: data) else {
+            return nil
+        }
+
+        return Image(nsImage: image)
+        #else
+        guard let image = UIImage(data: data) else {
+            return nil
+        }
+
+        return Image(uiImage: image)
+        #endif
     }
 }
