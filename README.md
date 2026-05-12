@@ -2,7 +2,7 @@
 
 `MarkdownStreamer` renders streaming LLM Markdown in SwiftUI with block-level incremental processing.
 
-The current pipeline avoids doing Markdown parsing or Splash highlighting inside SwiftUI `body`. Tokens are processed by a background `StreamProcessor` actor, then `MarkdownReader` publishes updates to the UI at a throttled rate.
+The current pipeline avoids doing Markdown parsing or Splash highlighting inside SwiftUI `body`. Tokens are processed by a background `StreamProcessor` actor, then `MarkdownReader` publishes updates to the UI block by block.
 
 ## Streaming Usage
 
