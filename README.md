@@ -92,7 +92,7 @@ StreamingMarkdownView(
 )
 ```
 
-The default image provider supports caching and remote image loading.
+The default image provider supports caching and remote image loading. It reserves a stable 16:9 layout by default while loading, then uses the decoded image dimensions once cached or loaded data is available. Pass `reservedAspectRatio:` to `DefaultMarkdownImageView` when a different initial footprint is better for your UI.
 
 `CodeBlock.highlightedCode` is precomputed by `StreamProcessor`; custom code views do not need to run Splash on the main thread.
 

@@ -133,59 +133,95 @@ public extension StreamingMarkdownView where CodeView == SplashCodeBlockView {
 
 public struct DefaultMarkdownImageView: View {
     public let image: MarkdownImage
+    public let reservedAspectRatio: CGFloat
     @State private var phase: DefaultMarkdownImagePhase = .empty
 
-    public init(image: MarkdownImage) {
+    public init(image: MarkdownImage, reservedAspectRatio: CGFloat = 16 / 9) {
         self.image = image
+        self.reservedAspectRatio = reservedAspectRatio
     }
 
     public var body: some View {
-        Group {
-            switch phase {
-            case .empty:
-                ProgressView()
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFit()
-            case .failure:
-                Image(systemName: "photo")
-                    .imageScale(.large)
-                    .foregroundStyle(.secondary)
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .aspectRatio(phase.aspectRatio ?? reservedAspectRatio, contentMode: .fit)
+            .overlay {
+                phaseView
             }
+            .task(id: image.source) {
+                phase = .empty
+                phase = await DefaultMarkdownImageLoader.shared.image(from: image.source)
+            }
+            .accessibilityLabel(image.alt ?? "")
+    }
+
+    @ViewBuilder
+    private var phaseView: some View {
+        switch phase {
+        case .empty:
+            ProgressView()
+        case .success(let image, _):
+            image
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failure:
+            Image(systemName: "photo")
+                .imageScale(.large)
+                .foregroundStyle(.secondary)
         }
-        .task(id: image.source) {
-            phase = .empty
-            phase = await DefaultMarkdownImageLoader.shared.image(from: image.source)
-        }
-        .accessibilityLabel(image.alt ?? "")
     }
 }
 
 private enum DefaultMarkdownImagePhase {
     case empty
-    case success(Image)
+    case success(Image, aspectRatio: CGFloat)
     case failure
+
+    var aspectRatio: CGFloat? {
+        switch self {
+        case .success(_, let aspectRatio):
+            aspectRatio
+        case .empty, .failure:
+            nil
+        }
+    }
 }
 
 private actor DefaultMarkdownImageLoader {
     static let shared = DefaultMarkdownImageLoader()
 
+    private var cachedImages: [URL: CachedMarkdownImage] = [:]
     private var cachedData: [URL: Data] = [:]
     private var inFlightRequests: [URL: Task<Data, Error>] = [:]
 
     func image(from url: URL) async -> DefaultMarkdownImagePhase {
         do {
-            let data = try await data(from: url)
-
-            guard let image = await Image.cachedMarkdownImage(from: data) else {
+            guard let cachedImage = try await cachedImage(from: url) else {
                 return .failure
             }
 
-            return .success(image)
+            return .success(cachedImage.image, aspectRatio: cachedImage.aspectRatio)
         } catch {
             return .failure
         }
+    }
+
+    private func cachedImage(from url: URL) async throws -> CachedMarkdownImage? {
+        if let cachedImage = cachedImages[url] {
+            return cachedImage
+        }
+
+        let data = try await data(from: url)
+
+        guard let cachedImage = await CachedMarkdownImage(data: data) else {
+            cachedData[url] = nil
+            return nil
+        }
+
+        cachedImages[url] = cachedImage
+        cachedData[url] = data
+        return cachedImage
     }
 
     private func data(from url: URL) async throws -> Data {
@@ -225,21 +261,26 @@ private actor DefaultMarkdownImageLoader {
     }
 }
 
-private extension Image {
+private struct CachedMarkdownImage {
+    let image: Image
+    let aspectRatio: CGFloat
+
     @MainActor
-    static func cachedMarkdownImage(from data: Data) -> Image? {
+    init?(data: Data) {
         #if os(macOS)
-        guard let image = NSImage(data: data) else {
+        guard let image = NSImage(data: data), image.size.width > 0, image.size.height > 0 else {
             return nil
         }
 
-        return Image(nsImage: image)
+        self.image = Image(nsImage: image)
+        self.aspectRatio = image.size.width / image.size.height
         #else
-        guard let image = UIImage(data: data) else {
+        guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else {
             return nil
         }
 
-        return Image(uiImage: image)
+        self.image = Image(uiImage: image)
+        self.aspectRatio = image.size.width / image.size.height
         #endif
     }
 }
